@@ -17,7 +17,11 @@
 package otelgin
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"net"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -78,6 +82,9 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 		// pass the span through the request context
 		c.Request = c.Request.WithContext(ctx)
 
+		// wrap the response writer to propagate span context
+		c.Writer = &responseWriterWrapper{w: c.Writer, props: cfg.Propagators, ctx: ctx}
+
 		// serve the request to the next middleware
 		c.Next()
 
@@ -126,4 +133,61 @@ func HTML(c *gin.Context, code int, name string, obj interface{}) {
 		}
 	}()
 	c.HTML(code, name, obj)
+}
+
+type responseWriterWrapper struct {
+	w gin.ResponseWriter
+	props propagation.TextMapPropagator
+	ctx context.Context
+}
+
+var _ gin.ResponseWriter = &responseWriterWrapper{}
+
+func (w *responseWriterWrapper) Header() http.Header {
+	return w.w.Header()
+}
+
+func (w *responseWriterWrapper) Write(b []byte) (int, error) {
+	return w.w.Write(b)
+}
+
+func (w *responseWriterWrapper) WriteHeader(statusCode int) {
+	w.props.Inject(w.ctx, propagation.HeaderCarrier(w.Header()))
+	w.w.WriteHeader(statusCode)
+}
+
+func (w *responseWriterWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return w.w.Hijack()
+}
+
+func (w *responseWriterWrapper) Flush() {
+	w.w.Flush()
+}
+
+func (w *responseWriterWrapper) CloseNotify() <-chan bool {
+	return w.w.CloseNotify()
+}
+
+func (w *responseWriterWrapper) Status() int {
+	return w.w.Status()
+}
+
+func (w *responseWriterWrapper) Size() int {
+	return w.w.Size()
+}
+
+func (w *responseWriterWrapper) WriteString(s string) (int, error) {
+	return w.w.WriteString(s)
+}
+
+func (w *responseWriterWrapper) Written() bool {
+	return w.w.Written()
+}
+
+func (w *responseWriterWrapper) WriteHeaderNow() {
+	w.w.WriteHeaderNow()
+}
+
+func (w *responseWriterWrapper) Pusher() http.Pusher {
+	return w.w.Pusher()
 }
